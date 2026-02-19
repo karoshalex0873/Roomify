@@ -2,6 +2,7 @@ import { CheckCircle2, ImageIcon, UploadIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router";
 
+
 import {
   PROGRESS_INTERVAL_MS,
   PROGRESS_STEP,
@@ -10,21 +11,29 @@ import {
 
 type UploadProps = {
   onComplete: (base64Data: string) => void;
+  onError?: (error: unknown) => void;
 };
 
-const Upload = ({ onComplete }: UploadProps) => {
+const Upload = ({ onComplete, onError }: UploadProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const { isSignedIn } = useOutletContext<AuthContext>()
 
   const intervalIdRef = useRef<number | null>(null);
+  const timeoutIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       if (intervalIdRef.current !== null) {
         window.clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
+      }
+      if (timeoutIdRef.current !== null) {
+        window.clearTimeout(timeoutIdRef.current);
+        timeoutIdRef.current = null;
       }
     };
   }, []);
@@ -37,8 +46,14 @@ const Upload = ({ onComplete }: UploadProps) => {
       intervalIdRef.current = null;
     }
 
+    if (timeoutIdRef.current !== null) {
+      window.clearTimeout(timeoutIdRef.current);
+      timeoutIdRef.current = null;
+    }
+
     setFile(nextFile);
     setProgress(0);
+    setError(null);
 
     const reader = new FileReader();
 
@@ -56,7 +71,12 @@ const Upload = ({ onComplete }: UploadProps) => {
               intervalIdRef.current = null;
             }
 
-            window.setTimeout(() => {
+            if (timeoutIdRef.current !== null) {
+              window.clearTimeout(timeoutIdRef.current);
+              timeoutIdRef.current = null;
+            }
+
+            timeoutIdRef.current = window.setTimeout(() => {
               onComplete(base64Data);
             }, REDIRECT_DELAY_MS);
           }
@@ -64,6 +84,26 @@ const Upload = ({ onComplete }: UploadProps) => {
           return next;
         });
       }, PROGRESS_INTERVAL_MS);
+    };
+
+    reader.onerror = () => {
+      if (intervalIdRef.current !== null) {
+        window.clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
+      }
+
+      if (timeoutIdRef.current !== null) {
+        window.clearTimeout(timeoutIdRef.current);
+        timeoutIdRef.current = null;
+      }
+
+      setProgress(0);
+      setFile(null);
+
+      const readError = reader.error ?? new Error("Failed to read file");
+      setError("Failed to read file. Please try again.");
+      console.error("FileReader error:", readError);
+      onError?.(readError);
     };
 
     reader.readAsDataURL(nextFile);
@@ -137,6 +177,7 @@ const Upload = ({ onComplete }: UploadProps) => {
               )}
             </p>
             <p className="help">Maximum  file size is 50MB</p>
+            {error ? <p className="help">{error}</p> : null}
           </div>
 
         </div>
